@@ -41,3 +41,5 @@ configs/voc_ignore
 
 # MacOS
 .DS_Store
+# slurmout
+*.out
