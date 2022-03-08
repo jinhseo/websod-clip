@@ -43,3 +43,4 @@ configs/voc_ignore
 .DS_Store
 # slurmout
 *.out
+*.yaml
