@@ -41,7 +41,7 @@ class DatasetCatalog(object):
         "coco_2014_valminusminival_partial": {
             "img_dir": "coco/val2014",
             "ann_file": "coco/annotations/instances_valminusminival2014_partial.json"
-        },   
+        },
         "keypoints_coco_2014_train": {
             "img_dir": "coco/train2014",
             "ann_file": "coco/annotations/person_keypoints_train2014.json",
@@ -102,6 +102,14 @@ class DatasetCatalog(object):
         "cityscapes_fine_instanceonly_seg_test_cocostyle": {
             "img_dir": "cityscapes/images",
             "ann_file": "cityscapes/annotations/instancesonly_filtered_gtFine_test.json"
+        },
+        "flickr_web": {
+            "data_dir": "flickr_web",
+            "split": "train"
+        },
+        "flickr_clean": {
+            "data_dir": "flickr_clean",
+            "split": "train"
         }
     }
 
@@ -140,6 +148,17 @@ class DatasetCatalog(object):
                 factory="COCODataset",
                 args=args,
             )
+        elif "flickr" in name:
+            data_dir = DatasetCatalog.DATA_DIR
+            attrs = DatasetCatalog.DATASETS[name]
+            args = dict(
+                data_dir=os.path.join(data_dir, attrs["data_dir"]),
+                split=attrs["split"],
+            )
+            return dict(
+                factory="WebDataset",
+                args=args,
+            )
         raise RuntimeError("Dataset not available: {}".format(name))
 
 
@@ -171,12 +190,12 @@ class ModelCatalog(object):
         # keypoints
         "37697547/e2e_keypoint_rcnn_R-50-FPN_1x": "08_42_54.kdzV35ao"
     }
-    
+
     VGG_IMAGENET_MODELS = {
         "JCJOHNS/VGG-16": "https://web.eecs.umich.edu/~justincj/models/vgg16-00b39a1b.pth",
         "JCJOHNS/VGG-19": "https://web.eecs.umich.edu/~justincj/models/vgg19-d01eb7cb.pth",
     }
-    
+
     @staticmethod
     def get(name):
         if name.startswith("Caffe2Detectron/COCO"):

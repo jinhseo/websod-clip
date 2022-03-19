@@ -1,6 +1,6 @@
 import os
 import pickle
-
+import json
 import torch
 import torch.utils.data
 from PIL import Image
@@ -10,8 +10,7 @@ from wetectron.structures.bounding_box import BoxList
 from wetectron.structures.boxlist_ops import remove_small_boxes
 from .coco import unique_boxes
 
-class PascalVOCDataset(torch.utils.data.Dataset):
-
+class WebDataset(torch.utils.data.Dataset):
     CLASSES = (
         "__background__ ",
         "aeroplane",
@@ -35,24 +34,24 @@ class PascalVOCDataset(torch.utils.data.Dataset):
         "train",
         "tvmonitor",
     )
-
     def __init__(self, data_dir, split, use_difficult=False, transforms=None, proposal_file=None, min_size=None):
         self.root = data_dir
         self.image_set = split
         self.keep_difficult = use_difficult
         self.transforms = transforms
 
-        self._annopath = os.path.join(self.root, "Annotations", "%s.xml")
-        self._imgpath = os.path.join(self.root, "JPEGImages", "%s.jpg")
-        self._imgsetpath = os.path.join(self.root, "ImageSets", "Main", "%s.txt")
+        self._annopath = os.path.join(self.root, "images.json")
+        with open(self._annopath) as f:
+            self._anno = json.load(f)
+        self._imgpath = os.path.join(self.root, "images", "%s.jpg")
+        self._imginfo = os.path.join(self.root, "images.txt")
 
-        with open(self._imgsetpath % self.image_set) as f:
+        with open(self._imginfo) as f:
             self.ids = f.readlines()
-
         self.ids = [x.strip("\n") for x in self.ids]
         self.id_to_img_map = {k: v for k, v in enumerate(self.ids)}
 
-        cls = PascalVOCDataset.CLASSES
+        cls = WebDataset.CLASSES
         self.class_to_ind = dict(zip(cls, range(len(cls))))
         self.categories = dict(zip(range(len(cls)), cls))
         self.min_size = min_size
@@ -62,7 +61,7 @@ class PascalVOCDataset(torch.utils.data.Dataset):
             print('Loading proposals from: {}'.format(proposal_file))
             with open(proposal_file, 'rb') as f:
                 self.proposals = pickle.load(f, encoding='latin1')
-            #self.id_field = 'indexes' if 'indexes' in self.proposals else 'ids'  # compat fix
+            # self.id_field = 'indexes' if 'indexes' in self.proposals else 'ids'  # compat fix
             # _sort_proposals(self.proposals, self.id_field)
             self.top_k = -1
         else:
@@ -77,21 +76,22 @@ class PascalVOCDataset(torch.utils.data.Dataset):
         img_id = self.ids[index]
         img = Image.open(self._imgpath % img_id).convert("RGB")
 
-        if not os.path.exists(self._annopath % img_id):
-            target = None
-        else:
-            target = self.get_groundtruth(index)
-            target = target.clip_to_image(remove_empty=True)
+        #if not os.path.exists(self._annopath % img_id):
+        #    target = None
+        #else:
+        #    target = self.get_groundtruth(index)
+        #    target = target.clip_to_image(remove_empty=True)
+
+        target = self.get_groundtruth(index)
+        target = target.clip_to_image(remove_empty=True)
 
         if self.proposals is not None:
-            #if '_' in self.ids[index] and self.image_set =="test" and "2012" in self.root:
-            #    img_id = int(''.join(self.ids[index].split('_')))
-            #else:
-            img_id = int(self.ids[index])
+            rois = self.proposals['boxes'][index]
+            #img_id = int(self.ids[index])
 
-            id_field = 'indexes' if 'indexes' in self.proposals else 'ids'  # compat fix
-            roi_idx = self.proposals[id_field].index(img_id)
-            rois = self.proposals['boxes'][roi_idx]
+            #id_field = 'indexes' if 'indexes' in self.proposals else 'ids'  # compat fix
+            #roi_idx = self.proposals[id_field].index(img_id)
+            #rois = self.proposals['boxes'][roi_idx]
 
             # scores = self.proposals['scores'][roi_idx]
             # assert rois.shape[0] == scores.shape[0]
@@ -104,22 +104,14 @@ class PascalVOCDataset(torch.utils.data.Dataset):
             rois = BoxList(torch.tensor(rois.astype(np.float64)), img.size, mode="xyxy")
             rois = rois.clip_to_image(remove_empty=True)
 
-            if 'train' in self.image_set or 'val' in self.image_set:
+            if self.image_set == 'trainval':
                 rois = remove_small_boxes(boxlist=rois, min_size=20)
             elif self.image_set == 'test':
                 rois = remove_small_boxes(boxlist=rois, min_size=20)
 
-            '''if self.top_k > 0 and len(rois) > self.top_k:
-                #cut = round((len(rois) - self.top_k)/2)
-                #if cut > 0:
-                #    rois = rois[rois.area().sort()[1][cut:-cut]]
-                #else:
-                #    rois = rois
-               cut = len(rois) - self.top_k
-                rois = rois[rois.area().sort()[1][cut:]]
-                #rois = rois[[range(self.top_k)]]
+            if self.top_k > 0:
+                rois = rois[[range(self.top_k)]]
                 # scores = scores[:self.top_k]
-            '''
         else:
             rois = None
 
@@ -133,16 +125,21 @@ class PascalVOCDataset(torch.utils.data.Dataset):
         return len(self.ids)
 
     def get_groundtruth(self, index):
-        img_id = self.ids[index]
-        anno = ET.parse(self._annopath % img_id).getroot()
+        anno = self._anno['annotations'][index]
+        target = BoxList([anno['bbox']], (anno['width'], anno['height']), mode="xyxy")
+        target.add_field("labels", torch.tensor([anno['category_id'] + 1]))
+        #if not anno['category_id']:
+        #    import IPython; IPython.embed()
+        return target
+        #import IPython; IPython.embed()
+        '''anno = ET.parse(self._annopath % img_id).getroot()
         anno = self._preprocess_annotation(anno)
-
         height, width = anno["im_info"]
         target = BoxList(anno["boxes"], (width, height), mode="xyxy")
         target.add_field("labels", anno["labels"])
         target.add_field("difficult", anno["difficult"])
         return target
-
+        '''
     def _preprocess_annotation(self, target):
         boxes = []
         gt_classes = []
@@ -184,8 +181,10 @@ class PascalVOCDataset(torch.utils.data.Dataset):
 
     def get_img_info(self, index):
         img_id = self.ids[index]
-        file_name = "JPEGImages/%s.jpg" % img_id
-        if os.path.exists(self._annopath % img_id):
+        file_name = "images/%s.jpg" % img_id
+        anno = self._anno['annotations'][index]
+        return {'height': anno['height'], 'width': anno['width'], "file_name": file_name}
+        '''if os.path.exists(self._annopath % img_id):
             anno = ET.parse(self._annopath % img_id).getroot()
             size = anno.find("size")
             im_info = tuple(map(int, (size.find("height").text, size.find("width").text)))
@@ -194,6 +193,6 @@ class PascalVOCDataset(torch.utils.data.Dataset):
             name = os.path.join(self.root, file_name)
             img = Image.open(name).convert("RGB")
             return  {"height": img.size[1], "width": img.size[0], "file_name": file_name}
-
+        '''
     def map_class_id_to_class_name(self, class_id):
-        return PascalVOCDataset.CLASSES[class_id]
+        return WebDataset.CLASSES[class_id]
