@@ -103,8 +103,8 @@ class DatasetCatalog(object):
             "img_dir": "cityscapes/images",
             "ann_file": "cityscapes/annotations/instancesonly_filtered_gtFine_test.json"
         },
-        "flickr_web": {
-            "data_dir": "flickr_web",
+        "flickr_noise": {
+            "data_dir": "flickr_noise",
             "split": "train"
         },
         "flickr_clean": {
