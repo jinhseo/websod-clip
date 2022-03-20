@@ -94,7 +94,6 @@ class WSDDNLossComputation(object):
         accuracy_img = accuracy_img / len(final_score_list)
         return dict(loss_img=total_loss), dict(accuracy_img=accuracy_img)
 
-
 @registry.ROI_WEAK_LOSS.register("RoILoss")
 class RoILossComputation(object):
     """ Generic roi-level loss """

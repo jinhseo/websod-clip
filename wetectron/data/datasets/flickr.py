@@ -43,7 +43,7 @@ class WebDataset(torch.utils.data.Dataset):
         self._annopath = os.path.join(self.root, "images.json")
         with open(self._annopath) as f:
             self._anno = json.load(f)
-        self._imgpath = os.path.join(self.root, "images", "%s.jpg")
+        self._imgpath = os.path.join(self.root, "images", "%s")
         self._imginfo = os.path.join(self.root, "images.txt")
 
         with open(self._imginfo) as f:
@@ -73,7 +73,8 @@ class WebDataset(torch.utils.data.Dataset):
         return img_id
 
     def __getitem__(self, index):
-        img_id = self.ids[index]
+        #img_id = self.ids[index]
+        img_id = self._anno['images'][index]['file_name']
         img = Image.open(self._imgpath % img_id).convert("RGB")
 
         #if not os.path.exists(self._annopath % img_id):
@@ -128,6 +129,7 @@ class WebDataset(torch.utils.data.Dataset):
         anno = self._anno['annotations'][index]
         target = BoxList([anno['bbox']], (anno['width'], anno['height']), mode="xyxy")
         target.add_field("labels", torch.tensor([anno['category_id'] + 1]))
+        #print(index, anno['category_id'])
         #if not anno['category_id']:
         #    import IPython; IPython.embed()
         return target
