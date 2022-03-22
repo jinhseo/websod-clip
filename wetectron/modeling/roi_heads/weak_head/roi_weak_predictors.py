@@ -9,6 +9,53 @@ import torch.nn.functional as F
 from wetectron.modeling import registry
 
 
+###
+from wetectron.structures.bounding_box import BoxList, BatchBoxList
+from wetectron.structures.boxlist_ops import boxlist_iou, boxlist_iou_async
+from wetectron.utils.utils import to_boxlist, cal_iou, cal_adj
+###
+@registry.ROI_WEAK_PREDICTOR.register("GCNPredictor")
+class GCNPredictor(nn.Module):
+    def __init__(self, config, in_channels):
+        super(GCNPredictor, self).__init__()
+        assert in_channels is not None
+        num_inputs = in_channels
+        num_classes = config.MODEL.ROI_BOX_HEAD.NUM_CLASSES
+
+        self.avgpool = nn.AdaptiveAvgPool2d(1)
+        self.cls_score = nn.Linear(num_inputs, num_classes)
+        self.det_score = nn.Linear(num_inputs, num_classes)
+        self._initialize_weights()
+
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.normal_(m.weight, mean=0, std=0.001)
+                nn.init.constant_(m.bias, 0)
+
+    def forward(self, x, proposals):
+        if x.dim() == 4:
+            x = self.avgpool(x)
+            x = x.view(x.size(0), -1)
+        assert x.dim() == 2
+        cls_logit = self.cls_score(x)
+        det_logit = self.det_score(x)
+
+        if not self.training:
+            cls_logit = F.softmax(cls_logit, dim=1)
+            # do softmax along ROI for different imgs
+            det_logit_list = det_logit.split([len(p) for p in proposals])
+            final_det_logit = []
+            for det_logit_per_image in det_logit_list:
+                det_logit_per_image = F.softmax(det_logit_per_image, dim=0)
+                final_det_logit.append(det_logit_per_image)
+            final_det_logit = torch.cat(final_det_logit, dim=0)
+        else:
+            final_det_logit = det_logit
+
+        return cls_logit, final_det_logit, None
+
+
 @registry.ROI_WEAK_PREDICTOR.register("WSDDNPredictor")
 class WSDDNPredictor(nn.Module):
     def __init__(self, config, in_channels):

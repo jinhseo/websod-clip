@@ -9,8 +9,10 @@ from wetectron.layers import smooth_l1_loss
 from wetectron.modeling import registry
 from wetectron.modeling.utils import cat
 from wetectron.config import cfg
+from wetectron.structures.bounding_box import BoxList, BatchBoxList
 from wetectron.structures.boxlist_ops import boxlist_iou, boxlist_iou_async
 from wetectron.modeling.matcher import Matcher
+from wetectron.utils.utils import to_boxlist, cal_iou, cal_adj
 
 from .pseudo_label_generator import oicr_layer, mist_layer
 
@@ -54,7 +56,7 @@ class WSDDNLossComputation(object):
     def __init__(self, cfg):
         self.type = "WSDDN"
 
-    def __call__(self, class_score, det_score, ref_scores, proposals, targets, epsilon=1e-8):
+    def __call__(self, class_score, det_score, ref_scores, proposals, targets, epsilon=1e-5):
         """
         Arguments:
             class_score (list[Tensor])
@@ -82,11 +84,11 @@ class WSDDNLossComputation(object):
         final_score_list = final_score.split([len(p) for p in proposals])
         total_loss = 0
         accuracy_img = 0
-        for final_score_per_im, targets_per_im in zip(final_score_list, targets):
+        for idx, (final_score_per_im, targets_per_im) in enumerate(zip(final_score_list, targets)):
             labels_per_im = generate_img_label(num_classes, targets_per_im.get_field('labels').unique(), device)
             img_score_per_im = torch.clamp(torch.sum(final_score_per_im, dim=0), min=epsilon, max=1-epsilon)
             total_loss += F.binary_cross_entropy(img_score_per_im, labels_per_im)
-
+            #import IPython; IPython.embed()
             with torch.no_grad():
                 accuracy_img += compute_avg_img_accuracy(labels_per_im, img_score_per_im, num_classes)
 

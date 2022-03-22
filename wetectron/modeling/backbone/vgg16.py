@@ -66,7 +66,7 @@ def make_layers(cfg, dim_in=3, batch_norm=False):
                 layers += [conv2d, nn.BatchNorm2d(_v), nn.ReLU(inplace=True)]
             else:
                 layers += [conv2d, nn.ReLU(inplace=True)]
-            in_channels = _v          
+            in_channels = _v
         else:
             conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1)
             if batch_norm:
@@ -95,7 +95,7 @@ def add_conv_body(cfg, dim_in=3):
     model = nn.Sequential(OrderedDict([("body", body)]))
     model.out_channels = 512
     return model
-    
+
 
 @registry.ROI_BOX_FEATURE_EXTRACTORS.register("VGG16.roi_head")
 class VGG16FC67ROIFeatureExtractor(nn.Module):
@@ -115,14 +115,14 @@ class VGG16FC67ROIFeatureExtractor(nn.Module):
         self.classifier =  nn.Sequential(
             Identity(),
             nn.Linear(512 * 7 * 7, 4096),
-            nn.ReLU(inplace=True), 
+            nn.ReLU(inplace=True),
             nn.Dropout(),
             nn.Linear(4096, 4096),
-            nn.ReLU(inplace=True), 
+            nn.ReLU(inplace=True),
             nn.Dropout()
         )
         self.out_channels = 4096
-        
+
         if init_weights:
             self._initialize_weights()
 
@@ -131,8 +131,9 @@ class VGG16FC67ROIFeatureExtractor(nn.Module):
             if isinstance(m, nn.Linear):
                 nn.init.normal_(m.weight, 0, 0.01)
                 nn.init.constant_(m.bias, 0)
-                
+
     def forward(self, x, proposals):
+
         # also pool featurs of multiple images into one huge ROI tensor
         x = self.pooler(x, proposals)
         x = x.view(x.shape[0], -1)
