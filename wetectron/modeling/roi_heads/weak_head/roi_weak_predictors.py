@@ -23,6 +23,10 @@ class GCNPredictor(nn.Module):
         num_classes = config.MODEL.ROI_BOX_HEAD.NUM_CLASSES
 
         self.avgpool = nn.AdaptiveAvgPool2d(1)
+        ###
+        self.gcn = nn.Linear(num_inputs, num_inputs)
+        #self.gcn = nn.Sequential(nn.Linear(num_inputs, num_inputs), nn.ReLU(inplace=True))
+        ###
         self.cls_score = nn.Linear(num_inputs, num_classes)
         self.det_score = nn.Linear(num_inputs, num_classes)
         self._initialize_weights()
@@ -38,9 +42,22 @@ class GCNPredictor(nn.Module):
             x = self.avgpool(x)
             x = x.view(x.size(0), -1)
         assert x.dim() == 2
-        cls_logit = self.cls_score(x)
-        det_logit = self.det_score(x)
 
+        #cls_logit = self.cls_score(x)
+        #det_logit = self.det_score(x)
+
+        ###
+        adj_size = x.shape[0]
+        adj_m = torch.zeros((adj_size, adj_size)).to(x.device)
+        l_proposal = [len(proposal) for proposal in proposals]
+        for i, (proposal, l_p) in enumerate(zip(proposals, l_proposal)):
+            start_ind = 0 if i == 0 else sum(l_proposal[:i])
+            end_ind = sum(l_proposal[:i+1])
+            adj_m[start_ind:end_ind, start_ind:end_ind] = cal_adj(proposal)
+
+        cls_logit = self.cls_score(torch.matmul(adj_m, self.gcn(x)))
+        det_logit = self.det_score(torch.matmul(adj_m, self.gcn(x)))
+        ###
         if not self.training:
             cls_logit = F.softmax(cls_logit, dim=1)
             # do softmax along ROI for different imgs
