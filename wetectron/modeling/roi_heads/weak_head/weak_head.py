@@ -19,9 +19,9 @@ from wetectron.modeling.utils import cat
 from wetectron.structures.boxlist_ops import cat_boxlist
 
 
-class ROIWeakHead(torch.nn.Module):
+class GraphWeakHead(torch.nn.Module):
     """
-    Generic Box Head class.
+    To handle Graph Structure for WSOD
     """
 
     def __init__(self, cfg, in_channels):
@@ -50,7 +50,60 @@ class ROIWeakHead(torch.nn.Module):
 
         x = self.feature_extractor(features, proposals)
         # final classifier that converts the features into predictions
+
+        node_logit = self.predictor(x,proposals)
         cls_score, det_score, ref_scores = self.predictor(x, proposals)
+        if not self.training:
+            if ref_scores == None:
+                final_score = cls_score * det_score
+            else:
+                final_score = torch.mean(torch.stack(ref_scores), dim=0)
+            result = self.post_processor(final_score, proposals)
+            return x, result, {}, {}
+        import IPython; IPython.embed()
+        loss_img, accuracy_img = self.loss_evaluator([cls_score], [det_score], ref_scores, proposals, targets)
+
+        return (
+            x,
+            proposals,
+            loss_img,
+            accuracy_img
+        )
+
+class ROIWeakHead(torch.nn.Module):
+    """
+    Generic Box Head class.
+    """
+
+    def __init__(self, cfg, in_channels):
+        super(ROIWeakHead, self).__init__()
+        self.feature_extractor = make_roi_box_feature_extractor(cfg, in_channels)
+        self.predictor = make_roi_weak_predictor(cfg, self.feature_extractor.out_channels)
+        self.post_processor = weak_roi_box_post_processor(cfg)
+        self.loss_evaluator = make_roi_weak_loss_evaluator(cfg)
+        self.use_graph = True if cfg.MODEL.ROI_WEAK_HEAD.PREDICTOR == 'GCNPredictor' else False
+
+    def forward(self, features, proposals, targets=None, model_cdb=None):
+        """
+        Arguments:
+            features (list[Tensor]): feature-maps from possibly several levels
+            proposals (list[BoxList]): proposal boxes
+            targets (list[BoxList], optional): the ground-truth targets.
+
+        Returns:
+            x (Tensor): the result of the feature extractor
+            proposals (list[BoxList]): during training, the proposals
+                are returned. During testing, the predicted boxlists are returned
+            losses (dict[Tensor]): During training, returns the losses for the
+                head. During testing, returns an empty dict.
+        """
+        # extract features that will be fed to the final classifier. The
+        # feature_extractor generally corresponds to the pooler + heads
+
+        x = self.feature_extractor(features, proposals)
+        # final classifier that converts the features into predictions
+        cls_score, det_score, ref_scores = self.predictor(x, proposals)
+
         if not self.training:
             if ref_scores == None:
                 final_score = cls_score * det_score

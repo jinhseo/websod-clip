@@ -3,6 +3,7 @@ import collections
 import torch.nn as nn
 import random
 import numpy as np
+import scipy.sparse as sp
 from torch.nn import functional as F
 from itertools import combinations
 from wetectron.modeling import registry
@@ -26,3 +27,17 @@ def cal_iou(proposal, target_index, iou_thres=1e-5):
 def cal_adj(proposal):
     boxes = BoxList(proposal.bbox, proposal.size, mode=proposal.mode)
     return boxlist_iou(boxes, boxes)
+
+def co_occurrence():
+    co_occur = 0
+    return co_occur
+
+def normalize_graph(mx):
+    rowsum = np.array(mx.sum(1))
+    r_inv = np.power(rowsum, -1).flatten()
+    r_inv[np.isinf(r_inv)] = 0.
+    r_mat_inv = sp.diags(r_inv)
+    mx = r_mat_inv.dot(mx)
+    return mx
+
+

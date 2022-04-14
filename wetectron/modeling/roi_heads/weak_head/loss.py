@@ -56,7 +56,7 @@ class WSDDNLossComputation(object):
     def __init__(self, cfg):
         self.type = "WSDDN"
 
-    def __call__(self, class_score, det_score, ref_scores, proposals, targets, epsilon=1e-8):
+    def __call__(self, class_score, det_score, ref_scores, proposals, targets, epsilon=1e-5):
         """
         Arguments:
             class_score (list[Tensor])
@@ -88,13 +88,59 @@ class WSDDNLossComputation(object):
             labels_per_im = generate_img_label(num_classes, targets_per_im.get_field('labels').unique(), device)
             img_score_per_im = torch.clamp(torch.sum(final_score_per_im, dim=0), min=epsilon, max=1-epsilon)
             total_loss += F.binary_cross_entropy(img_score_per_im, labels_per_im)
-            #import IPython; IPython.embed()
             with torch.no_grad():
                 accuracy_img += compute_avg_img_accuracy(labels_per_im, img_score_per_im, num_classes)
 
         total_loss = total_loss / len(final_score_list)
         accuracy_img = accuracy_img / len(final_score_list)
         return dict(loss_img=total_loss), dict(accuracy_img=accuracy_img)
+
+@registry.ROI_WEAK_LOSS.register("GraphLoss")
+class GraphLossComputation(object):
+    """ Computes the loss for WSDDN."""
+    def __init__(self, cfg):
+        self.type = "Graph"
+
+    def __call__(self, class_score, det_score, ref_scores, proposals, targets, epsilon=1e-5):
+        """
+        Arguments:
+            class_score (list[Tensor])
+            det_score (list[Tensor])
+
+        Returns:
+            img_loss (Tensor)
+            accuracy_img (Tensor): the accuracy of image-level classification
+        """
+        class_score = cat(class_score, dim=0)
+        class_score = F.softmax(class_score, dim=1)
+
+        det_score = cat(det_score, dim=0)
+        det_score_list = det_score.split([len(p) for p in proposals])
+        final_det_score = []
+        for det_score_per_image in det_score_list:
+            det_score_per_image = F.softmax(det_score_per_image, dim=0)
+            final_det_score.append(det_score_per_image)
+        final_det_score = cat(final_det_score, dim=0)
+
+        device = class_score.device
+        num_classes = class_score.shape[1]
+
+        final_score = class_score * final_det_score
+        final_score_list = final_score.split([len(p) for p in proposals])
+        total_loss = 0
+        accuracy_img = 0
+        for idx, (final_score_per_im, targets_per_im) in enumerate(zip(final_score_list, targets)):
+            labels_per_im = generate_img_label(num_classes, targets_per_im.get_field('labels').unique(), device)
+            img_score_per_im = torch.clamp(torch.sum(final_score_per_im, dim=0), min=epsilon, max=1-epsilon)
+            total_loss += F.binary_cross_entropy(img_score_per_im, labels_per_im)
+            with torch.no_grad():
+                accuracy_img += compute_avg_img_accuracy(labels_per_im, img_score_per_im, num_classes)
+
+        total_loss = total_loss / len(final_score_list)
+        accuracy_img = accuracy_img / len(final_score_list)
+        return dict(loss_img=total_loss), dict(accuracy_img=accuracy_img)
+
+
 
 @registry.ROI_WEAK_LOSS.register("RoILoss")
 class RoILossComputation(object):

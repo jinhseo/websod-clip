@@ -133,7 +133,6 @@ class VGG16FC67ROIFeatureExtractor(nn.Module):
                 nn.init.constant_(m.bias, 0)
 
     def forward(self, x, proposals):
-
         # also pool featurs of multiple images into one huge ROI tensor
         x = self.pooler(x, proposals)
         x = x.view(x.shape[0], -1)

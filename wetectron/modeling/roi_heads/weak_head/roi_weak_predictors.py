@@ -8,11 +8,11 @@ import torch.nn.functional as F
 
 from wetectron.modeling import registry
 
-
+import math
 ###
 from wetectron.structures.bounding_box import BoxList, BatchBoxList
 from wetectron.structures.boxlist_ops import boxlist_iou, boxlist_iou_async
-from wetectron.utils.utils import to_boxlist, cal_iou, cal_adj
+from wetectron.utils.utils import to_boxlist, cal_iou, cal_adj, normalize_graph
 ###
 @registry.ROI_WEAK_PREDICTOR.register("GCNPredictor")
 class GCNPredictor(nn.Module):
@@ -24,8 +24,9 @@ class GCNPredictor(nn.Module):
 
         self.avgpool = nn.AdaptiveAvgPool2d(1)
         ###
-        self.gcn = nn.Linear(num_inputs, num_inputs)
-        #self.gcn = nn.Sequential(nn.Linear(num_inputs, num_inputs), nn.ReLU(inplace=True))
+        hidden_layer = 48
+        self.gcn1 = nn.Sequential(nn.Linear(num_inputs, hidden_layer), nn.ReLU(inplace=True))
+        self.gcn2 = nn.Linear(hidden_layer, num_classes)
         ###
         self.cls_score = nn.Linear(num_inputs, num_classes)
         self.det_score = nn.Linear(num_inputs, num_classes)
@@ -34,30 +35,42 @@ class GCNPredictor(nn.Module):
     def _initialize_weights(self):
         for m in self.modules():
             if isinstance(m, nn.Linear):
-                nn.init.normal_(m.weight, mean=0, std=0.001)
-                nn.init.constant_(m.bias, 0)
+                std = 1. / math.sqrt(m.weight.size(1))
+                nn.init.uniform_(m.weight, -std, std)
+                nn.init.uniform_(m.bias, -std, std)
+
+                #nn.init.normal_(m.weight, mean=0, std=0.001)
+                #nn.init.constant_(m.bias, 0)
+                #import IPython; IPython.embed()
+                #nn.init.uniform_(m.weight, -1/math.sqrt(self.gcn1[0].weight.size(1)), 1/math.sqrt(self.gcn1[0].weight.size(1)))
+                #nn.init.uniform_(m.bias, -1/math.sqrt(self.gcn1[0].weight.size(1)), 1/math.sqrt(self.gcn1[0].weight.size(1)))
 
     def forward(self, x, proposals):
         if x.dim() == 4:
             x = self.avgpool(x)
             x = x.view(x.size(0), -1)
         assert x.dim() == 2
-
-        #cls_logit = self.cls_score(x)
-        #det_logit = self.det_score(x)
+        cls_logit = self.cls_score(x)
+        det_logit = self.det_score(x)
 
         ###
         adj_size = x.shape[0]
-        adj_m = torch.zeros((adj_size, adj_size)).to(x.device)
+        adj_m = torch.zeros((adj_size, adj_size))#.to(x.device)
         l_proposal = [len(proposal) for proposal in proposals]
         for i, (proposal, l_p) in enumerate(zip(proposals, l_proposal)):
             start_ind = 0 if i == 0 else sum(l_proposal[:i])
             end_ind = sum(l_proposal[:i+1])
             adj_m[start_ind:end_ind, start_ind:end_ind] = cal_adj(proposal)
 
-        cls_logit = self.cls_score(torch.matmul(adj_m, self.gcn(x)))
-        det_logit = self.det_score(torch.matmul(adj_m, self.gcn(x)))
+        norm_x = x
+        #norm_x = torch.Tensor(normalize_graph(x.cpu().detach())).to(x.device)
+        adj_m = torch.Tensor(normalize_graph(adj_m)).to(x.device)
+
+        norm_x = torch.spmm(adj_m, self.gcn1(norm_x))
+        norm_x = torch.spmm(adj_m, self.gcn2(norm_x))
+
         ###
+
         if not self.training:
             cls_logit = F.softmax(cls_logit, dim=1)
             # do softmax along ROI for different imgs
@@ -70,7 +83,8 @@ class GCNPredictor(nn.Module):
         else:
             final_det_logit = det_logit
 
-        return cls_logit, final_det_logit, None
+
+        return norm_x
 
 
 @registry.ROI_WEAK_PREDICTOR.register("WSDDNPredictor")
