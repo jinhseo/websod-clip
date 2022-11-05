@@ -79,7 +79,7 @@ def train(cfg, local_rank, distributed, use_tensorboard=False):
             delimiter="  ")
     else:
         meters = MetricLogger(delimiter="  ")
-        
+
     do_train(
         model,
         data_loader,
@@ -106,7 +106,7 @@ def train_cdb(cfg, local_rank, distributed, use_tensorboard=False):
     scheduler = make_lr_scheduler(cfg, optimizer)
     optimizer_cdb = make_cdb_optimizer(cfg, model_cdb)
     scheduler_cdb = make_lr_cdb_scheduler(cfg, optimizer_cdb)
-
+    import IPython; IPython.embed()
     # Initialize mixed-precision training
     use_mixed_precision = cfg.DTYPE == "float16"
     amp_opt_level = 'O1' if use_mixed_precision else 'O0'
@@ -142,7 +142,7 @@ def train_cdb(cfg, local_rank, distributed, use_tensorboard=False):
         is_distributed=distributed,
         start_iter=arguments["iteration"],
     )
-    
+
     if use_tensorboard:
         meters = TensorboardLogger(
             log_dir=os.path.join(cfg['OUTPUT_DIR'], 'log/'),

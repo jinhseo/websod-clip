@@ -111,7 +111,7 @@ class VGG16FC67ROIFeatureExtractor(nn.Module):
             sampling_ratio=sampling_ratio,
         )
         self.pooler = pooler
-
+        self.avgpool = nn.AdaptiveAvgPool2d(1)
         self.classifier =  nn.Sequential(
             Identity(),
             nn.Linear(512 * 7 * 7, 4096),

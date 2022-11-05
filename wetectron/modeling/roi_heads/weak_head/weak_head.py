@@ -25,7 +25,7 @@ class GraphWeakHead(torch.nn.Module):
     """
 
     def __init__(self, cfg, in_channels):
-        super(ROIWeakHead, self).__init__()
+        super(GraphWeakHead, self).__init__()
         self.feature_extractor = make_roi_box_feature_extractor(cfg, in_channels)
         self.predictor = make_roi_weak_predictor(cfg, self.feature_extractor.out_channels)
         self.post_processor = weak_roi_box_post_processor(cfg)
@@ -47,11 +47,10 @@ class GraphWeakHead(torch.nn.Module):
         """
         # extract features that will be fed to the final classifier. The
         # feature_extractor generally corresponds to the pooler + heads
-
         x = self.feature_extractor(features, proposals)
         # final classifier that converts the features into predictions
 
-        node_logit = self.predictor(x,proposals)
+        #img_logit = self.predictor(x,proposals)
         cls_score, det_score, ref_scores = self.predictor(x, proposals)
         if not self.training:
             if ref_scores == None:
@@ -60,7 +59,6 @@ class GraphWeakHead(torch.nn.Module):
                 final_score = torch.mean(torch.stack(ref_scores), dim=0)
             result = self.post_processor(final_score, proposals)
             return x, result, {}, {}
-        import IPython; IPython.embed()
         loss_img, accuracy_img = self.loss_evaluator([cls_score], [det_score], ref_scores, proposals, targets)
 
         return (
@@ -81,7 +79,6 @@ class ROIWeakHead(torch.nn.Module):
         self.predictor = make_roi_weak_predictor(cfg, self.feature_extractor.out_channels)
         self.post_processor = weak_roi_box_post_processor(cfg)
         self.loss_evaluator = make_roi_weak_loss_evaluator(cfg)
-        self.use_graph = True if cfg.MODEL.ROI_WEAK_HEAD.PREDICTOR == 'GCNPredictor' else False
 
     def forward(self, features, proposals, targets=None, model_cdb=None):
         """
@@ -153,6 +150,7 @@ class ROIWeakRegHead(torch.nn.Module):
             with torch.no_grad():
                 proposals = self.roi_sampler(proposals, targets)
         roi_feats  = self.go_through_cdb(features, proposals, model_cdb)
+
         cls_score, det_score, ref_scores, ref_bbox_preds = self.predictor(roi_feats, proposals)
         if not self.training:
             result = self.testing_forward(cls_score, det_score, proposals, ref_scores, ref_bbox_preds)
@@ -190,6 +188,8 @@ def build_roi_weak_head(cfg, in_channels):
     By default, uses ROIWeakRegHead, but if it turns out not to be enough, just register a new class
     and make it a parameter in the config
     """
+    if 'GCN' in cfg.MODEL.ROI_WEAK_HEAD.PREDICTOR:
+        return GraphWeakHead(cfg, in_channels)
     if cfg.MODEL.ROI_WEAK_HEAD.REGRESS_ON:
         return ROIWeakRegHead(cfg, in_channels)
     else:

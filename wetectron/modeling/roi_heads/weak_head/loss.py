@@ -12,7 +12,7 @@ from wetectron.config import cfg
 from wetectron.structures.bounding_box import BoxList, BatchBoxList
 from wetectron.structures.boxlist_ops import boxlist_iou, boxlist_iou_async
 from wetectron.modeling.matcher import Matcher
-from wetectron.utils.utils import to_boxlist, cal_iou, cal_adj
+from wetectron.utils.utils import to_boxlist, cal_iou, cal_adj, temp_softmax
 
 from .pseudo_label_generator import oicr_layer, mist_layer
 
@@ -56,7 +56,7 @@ class WSDDNLossComputation(object):
     def __init__(self, cfg):
         self.type = "WSDDN"
 
-    def __call__(self, class_score, det_score, ref_scores, proposals, targets, epsilon=1e-5):
+    def __call__(self, class_score, det_score, ref_scores, proposals, targets, epsilon=1e-8):
         """
         Arguments:
             class_score (list[Tensor])
@@ -87,6 +87,7 @@ class WSDDNLossComputation(object):
         for idx, (final_score_per_im, targets_per_im) in enumerate(zip(final_score_list, targets)):
             labels_per_im = generate_img_label(num_classes, targets_per_im.get_field('labels').unique(), device)
             img_score_per_im = torch.clamp(torch.sum(final_score_per_im, dim=0), min=epsilon, max=1-epsilon)
+            #import IPython; IPython.embed()
             total_loss += F.binary_cross_entropy(img_score_per_im, labels_per_im)
             with torch.no_grad():
                 accuracy_img += compute_avg_img_accuracy(labels_per_im, img_score_per_im, num_classes)
@@ -101,7 +102,7 @@ class GraphLossComputation(object):
     def __init__(self, cfg):
         self.type = "Graph"
 
-    def __call__(self, class_score, det_score, ref_scores, proposals, targets, epsilon=1e-5):
+    def __call__(self, class_score, det_score, ref_scores, proposals, targets, epsilon=1e-8):
         """
         Arguments:
             class_score (list[Tensor])
@@ -111,6 +112,8 @@ class GraphLossComputation(object):
             img_loss (Tensor)
             accuracy_img (Tensor): the accuracy of image-level classification
         """
+        graph_cls_logit = class_score.copy()
+        graph_det_logit = det_score.copy()
         class_score = cat(class_score, dim=0)
         class_score = F.softmax(class_score, dim=1)
 
@@ -127,11 +130,14 @@ class GraphLossComputation(object):
 
         final_score = class_score * final_det_score
         final_score_list = final_score.split([len(p) for p in proposals])
+        #final_score_list1 = (graph_cls_logit[0] * graph_det_logit[0]).split([len(p) for p in proposals])
         total_loss = 0
         accuracy_img = 0
+
         for idx, (final_score_per_im, targets_per_im) in enumerate(zip(final_score_list, targets)):
             labels_per_im = generate_img_label(num_classes, targets_per_im.get_field('labels').unique(), device)
             img_score_per_im = torch.clamp(torch.sum(final_score_per_im, dim=0), min=epsilon, max=1-epsilon)
+            #import IPython; IPython.embed()
             total_loss += F.binary_cross_entropy(img_score_per_im, labels_per_im)
             with torch.no_grad():
                 accuracy_img += compute_avg_img_accuracy(labels_per_im, img_score_per_im, num_classes)

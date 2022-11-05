@@ -40,4 +40,11 @@ def normalize_graph(mx):
     mx = r_mat_inv.dot(mx)
     return mx
 
-
+def temp_softmax(logits, dim=0, T=1):
+    e = torch.exp(logits/T)
+    return e / e.sum()
+    #m = torch.max(logits, dim, keepdim=True)[0]
+    #logits = logits/T
+    #x_exp = torch.exp(logits-m)
+    #x_exp_sum = torch.sum(x_exp, dim, keepdim=True)
+    #return x_exp/x_exp_sum
