@@ -45,6 +45,6 @@ date
 
 python -m torch.distributed.launch --master_port=$RANDOM --nproc_per_node=${G} \
     $SAMPLES_DIR/tools/train_net.py --config-file "${CONFIG_PATH}" \
-    OUTPUT_DIR $HOME/cbs/output/${OUTPUT_DIR}
+    OUTPUT_DIR $HOME/wsod/output/${OUTPUT_DIR}
 
 date

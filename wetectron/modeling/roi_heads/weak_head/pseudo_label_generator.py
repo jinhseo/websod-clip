@@ -123,9 +123,9 @@ class oicr_layer(object):
             loss_weights = gt_scores[gt_assignment, 0]
 
             # Select background RoIs as those with <= FG_IOU_THRESHOLD
+
             bg_inds = max_overlaps.le(cfg.MODEL.ROI_HEADS.FG_IOU_THRESHOLD).nonzero(as_tuple=False)[:,0]
             pseudo_labels[bg_inds] = 0
-
             if return_targets:
                 matched_targets = gt_boxes[gt_assignment]
                 regression_targets = self.box_coder.encode(

@@ -112,7 +112,7 @@ class VGG16FC67ROIFeatureExtractor(nn.Module):
         )
         self.pooler = pooler
         self.avgpool = nn.AdaptiveAvgPool2d(1)
-        self.classifier =  nn.Sequential(
+        self.classifier = nn.Sequential(
             Identity(),
             nn.Linear(512 * 7 * 7, 4096),
             nn.ReLU(inplace=True),
@@ -135,9 +135,10 @@ class VGG16FC67ROIFeatureExtractor(nn.Module):
     def forward(self, x, proposals):
         # also pool featurs of multiple images into one huge ROI tensor
         x = self.pooler(x, proposals)
+        roi_feats = x
         x = x.view(x.shape[0], -1)
         x = self.classifier(x)
-        return x
+        return x, roi_feats
 
     def forward_pooler(self, x, proposals):
         x = self.pooler(x, proposals)

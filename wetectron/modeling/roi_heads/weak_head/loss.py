@@ -13,6 +13,7 @@ from wetectron.structures.bounding_box import BoxList, BatchBoxList
 from wetectron.structures.boxlist_ops import boxlist_iou, boxlist_iou_async
 from wetectron.modeling.matcher import Matcher
 from wetectron.utils.utils import to_boxlist, cal_iou, cal_adj, temp_softmax
+from .label_smoothing import LabelSmoothingCrossEntropy
 
 from .pseudo_label_generator import oicr_layer, mist_layer
 
@@ -86,8 +87,8 @@ class WSDDNLossComputation(object):
         accuracy_img = 0
         for idx, (final_score_per_im, targets_per_im) in enumerate(zip(final_score_list, targets)):
             labels_per_im = generate_img_label(num_classes, targets_per_im.get_field('labels').unique(), device)
+
             img_score_per_im = torch.clamp(torch.sum(final_score_per_im, dim=0), min=epsilon, max=1-epsilon)
-            #import IPython; IPython.embed()
             total_loss += F.binary_cross_entropy(img_score_per_im, labels_per_im)
             with torch.no_grad():
                 accuracy_img += compute_avg_img_accuracy(labels_per_im, img_score_per_im, num_classes)
@@ -102,7 +103,7 @@ class GraphLossComputation(object):
     def __init__(self, cfg):
         self.type = "Graph"
 
-    def __call__(self, class_score, det_score, ref_scores, proposals, targets, epsilon=1e-8):
+    def __call__(self, class_score, det_score, img_score, proposals, targets, epsilon=1e-8):
         """
         Arguments:
             class_score (list[Tensor])
@@ -112,8 +113,7 @@ class GraphLossComputation(object):
             img_loss (Tensor)
             accuracy_img (Tensor): the accuracy of image-level classification
         """
-        graph_cls_logit = class_score.copy()
-        graph_det_logit = det_score.copy()
+        class_score_list = cat(class_score, dim=0).split([len(p) for p in proposals])
         class_score = cat(class_score, dim=0)
         class_score = F.softmax(class_score, dim=1)
 
@@ -136,8 +136,10 @@ class GraphLossComputation(object):
 
         for idx, (final_score_per_im, targets_per_im) in enumerate(zip(final_score_list, targets)):
             labels_per_im = generate_img_label(num_classes, targets_per_im.get_field('labels').unique(), device)
-            img_score_per_im = torch.clamp(torch.sum(final_score_per_im, dim=0), min=epsilon, max=1-epsilon)
             #import IPython; IPython.embed()
+            img_score_per_im = torch.clamp(torch.sum(final_score_per_im, dim=0), min=epsilon, max=1-epsilon)
+            import IPython; IPython.embed()
+            #img_score_per_im = img_score[idx]
             total_loss += F.binary_cross_entropy(img_score_per_im, labels_per_im)
             with torch.no_grad():
                 accuracy_img += compute_avg_img_accuracy(labels_per_im, img_score_per_im, num_classes)
@@ -206,7 +208,8 @@ class RoILossComputation(object):
             # Region loss
             for i in range(num_refs):
                 source_score = final_score_per_im if i == 0 else F.softmax(ref_scores[i-1][idx], dim=1)
-                lmda = 3 if i == 0 else 1
+                #lmda = 3 if i == 0 else 1
+                lmda = 1
                 pseudo_labels, loss_weights = self.roi_layer(proposals_per_image, source_score, labels_per_im, device)
                 return_loss_dict['loss_ref%d'%i] += lmda * torch.mean(F.cross_entropy(ref_scores[i][idx], pseudo_labels, reduction='none') * loss_weights)
 
@@ -244,6 +247,7 @@ class RoIRegLossComputation(object):
         self.proposal_scribble_matcher = Matcher(
             0.5, 0.5, allow_low_quality_matches=False,
         )
+        self.smooth_ce = LabelSmoothingCrossEntropy(epsilon = 0.2, reduction = 'none')
 
     def filter_pseudo_labels(self, pseudo_labels, proposal, target):
         """ refine pseudo labels according to partial labels """
@@ -270,7 +274,7 @@ class RoIRegLossComputation(object):
 
         return pseudo_labels
 
-    def __call__(self, class_score, det_score, ref_scores, ref_bbox_preds, proposals, targets, epsilon=1e-10):
+    def __call__(self, class_score, det_score, ref_scores, ref_bbox_preds, proposals, targets, epsilon=1e-8):
         class_score = cat(class_score, dim=0)
         class_score = F.softmax(class_score, dim=1)
 
@@ -315,10 +319,14 @@ class RoIRegLossComputation(object):
                     pseudo_labels = self.filter_pseudo_labels(pseudo_labels, proposals_per_image, targets_per_im)
 
                 lmda = 3 if i == 0 else 1
+                #lmda = 1
                 # classification
                 return_loss_dict['loss_ref_cls%d'%i] += lmda * torch.mean(
                     F.cross_entropy(ref_scores[i][idx], pseudo_labels, reduction='none') * loss_weights
                 )
+                #return_loss_dict['loss_ref_cls%d'%i] += lmda * torch.mean(
+                #     self.smooth_ce(ref_scores[i][idx], pseudo_labels) * loss_weights
+                #)
                 # regression
                 sampled_pos_inds_subset = torch.nonzero(pseudo_labels>0, as_tuple=False).squeeze(1)
                 labels_pos = pseudo_labels[sampled_pos_inds_subset]
@@ -343,8 +351,13 @@ class RoIRegLossComputation(object):
                     return_acc_dict['acc_ref%d'%i] += compute_avg_img_accuracy(labels_per_im[1:], ref_score_per_im[1:], num_classes)
 
         assert len(final_score_list) != 0
-        for l, a in zip(return_loss_dict.keys(), return_acc_dict.keys()):
+        #for i, (l, a) in enumerate(zip(return_loss_dict.keys(), return_acc_dict.keys())):
+        #    return_loss_dict[l] /= len(final_score_list)
+        #    return_acc_dict[a] /= len(final_score_list)
+        #import IPython; IPython.embed()
+        for l in return_loss_dict.keys():
             return_loss_dict[l] /= len(final_score_list)
+        for a in return_acc_dict.keys():
             return_acc_dict[a] /= len(final_score_list)
 
         return return_loss_dict, return_acc_dict
