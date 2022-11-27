@@ -1,20 +1,3 @@
-<div align="center">
-  <h1> Object Discovery via Contrastive Learning for Weakly Supervised Object Detection</h1>
-</div><div align="center">
-  <h3>Jinhwan Seo, Wonho Bae, Danica J. Sutherland, Junhyug Noh, and Daijin Kim</h3>
-</div>
-</div><div align="center">
-  <h3><a href="https://github.com/jinhseo/OD-WSCL">[Paper]</a>, <a href="https://jinhseo.github.io/research/wsod.html">[Project page]</a></h3>
-</div>
-<br /><div align="center">
-</div>
-
-The official implementation of ECCV2022 paper: "Object Discovery via Contrastive Learning for Weakly Supervised Object Detection"  
-
-[![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/object-discovery-via-contrastive-learning-for/weakly-supervised-object-detection-on-ms-coco)](https://paperswithcode.com/sota/weakly-supervised-object-detection-on-ms-coco?p=object-discovery-via-contrastive-learning-for)  
-[![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/object-discovery-via-contrastive-learning-for/weakly-supervised-object-detection-on-ms-coco-1)](https://paperswithcode.com/sota/weakly-supervised-object-detection-on-ms-coco-1?p=object-discovery-via-contrastive-learning-for)  
-[![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/object-discovery-via-contrastive-learning-for/weakly-supervised-object-detection-on-pascal)](https://paperswithcode.com/sota/weakly-supervised-object-detection-on-pascal?p=object-discovery-via-contrastive-learning-for)  
-[![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/object-discovery-via-contrastive-learning-for/weakly-supervised-object-detection-on-pascal-1)](https://paperswithcode.com/sota/weakly-supervised-object-detection-on-pascal-1?p=object-discovery-via-contrastive-learning-for)
 ## Environment setup:
 
 * [Python 3.7](https://pytorch.org)
