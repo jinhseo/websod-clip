@@ -42,6 +42,7 @@ class VGG_Base(nn.Module):
                 nn.init.constant_(m.bias, 0)
 
     def _freeze_backbone(self, freeze_at):
+        #feeze_at = 5
         if freeze_at < 0:
             return
         assert freeze_at in [1, 2, 3, 4, 5]

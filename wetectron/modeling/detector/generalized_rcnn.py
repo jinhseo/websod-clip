@@ -8,14 +8,21 @@ Implements the Generalized R-CNN framework
 """
 
 import torch
+import clip
+import torch.nn.functional as F
+
 from torch import nn
 
 from wetectron.structures.image_list import to_image_list
-
+from torchvision.transforms.functional import to_pil_image
 from ..backbone import build_backbone
 from ..rpn.rpn import build_rpn
 from ..roi_heads.roi_heads import build_roi_heads
+from wetectron.utils.utils import generate_img_label, txt_embed, img_embed, run_clip
+from torch.distributions import Categorical
 
+CLASSES = ["aeroplane", "bicycle", "bird", "boat", "bottle", "bus", "car", "cat", "chair", "cow", "diningtable", "dog", "horse",
+           "motorbike", "person", "pottedplant", "sheep", "sofa", "train", "tvmonitor"]
 
 class GeneralizedRCNN(nn.Module):
     """
@@ -49,7 +56,29 @@ class GeneralizedRCNN(nn.Module):
         """
         if self.training and targets is None:
             raise ValueError("In training mode, targets should be passed")
+        device = images.tensors.device
+
+        ### clip noise ###
+        #import IPython; IPython.embed()
+        #model, preprocess = clip.load("RN50", device=device)
+        #model, preprocess = clip.load("ViT-B/32", device=device)
+
+        #import IPython; IPython.embed()
+        #phrase = "a photo of a "
+        #clip_txt_embed = txt_embed(model, phrase, CLASSES, device)
+        #clip_img_embed, img_label = img_embed(model, preprocess, images.tensors, targets, device)
+
+        #clip_pred, clip_label, clip_entropy, img_label = run_clip(model, preprocess, images.tensors, phrase, CLASSES, targets, device)
+        #clip_pred = (100 * clip_img_embed @ clip_txt_embed.T).softmax(dim=-1)
+        #clip_label = [int(v) + 1 for v in clip_pred.argmax(dim=1)]
+        #clip_entropy = Categorical(probs = clip_pred).entropy()
+        #import IPython; IPython.embed()
+
+        ### clip noise ###
+
         features = self.backbone(images.tensors)
+        #features = [model.encode_image(images.tensors).type(torch.float)]
+        #import IPython; IPython.embed()
         if rois is not None and rois[0] is not None:
             # use pre-computed proposals
             proposals = rois

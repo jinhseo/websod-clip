@@ -47,18 +47,16 @@ class GraphWeakHead(torch.nn.Module):
         """
         # extract features that will be fed to the final classifier. The
         # feature_extractor generally corresponds to the pooler + heads
+
         x, pooled_feats = self.feature_extractor(features, proposals)
+        #x = self.feature_extractor.forward_pooler(features, proposals)
+        #pooled_feats = []
         # final classifier that converts the features into predictions
 
         #img_logit = self.predictor(x,proposals)
         #cls_score, det_score, ref_scores, ref_bbox_preds = self.predictor(x, proposals)
-        cls_score, det_score, img_score = self.predictor(x, pooled_feats, proposals)
-        ref_scores = None
-        #if not self.training:
-        #    result = self.testing_forward(cls_score, det_score, proposals)
-        #    return x, result, {}, {}
-        #loss_img, accuracy_img = self.loss_evaluator([cls_score], [det_score], img_logit, proposals, targets)
-        #return (x, proposals, loss_img, accuracy_img)
+        cls_score, det_score, graph_score, node_score, ref_scores, ref_bbox_preds = self.predictor(x, pooled_feats, proposals, targets)
+
         if not self.training:
             if ref_scores == None:
                 final_score = cls_score * det_score
@@ -66,7 +64,7 @@ class GraphWeakHead(torch.nn.Module):
                 final_score = torch.mean(torch.stack(ref_scores), dim=0)
             result = self.post_processor(final_score, proposals)
             return x, result, {}, {}
-        loss_img, accuracy_img = self.loss_evaluator([cls_score], [det_score], img_score, proposals, targets)
+        loss_img, accuracy_img = self.loss_evaluator([cls_score], [det_score], graph_score, node_score, ref_scores, ref_bbox_preds, proposals, targets)
 
         return (
             x,

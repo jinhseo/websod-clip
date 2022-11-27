@@ -95,15 +95,33 @@ class WSDDNLossComputation(object):
 
         total_loss = total_loss / len(final_score_list)
         accuracy_img = accuracy_img / len(final_score_list)
-        return dict(loss_img=total_loss), dict(accuracy_img=accuracy_img)
+        return dict(loss_img=total_loss), dict(accuracy_img=accuracy_img),
 
 @registry.ROI_WEAK_LOSS.register("GraphLoss")
 class GraphLossComputation(object):
     """ Computes the loss for WSDDN."""
     def __init__(self, cfg):
         self.type = "Graph"
+        refine_p = cfg.MODEL.ROI_WEAK_HEAD.OICR_P
+        if refine_p == 0:
+            self.roi_layer = oicr_layer()
+        elif refine_p > 0 and refine_p < 1:
+            self.roi_layer = mist_layer(refine_p)
+        else:
+            raise ValueError('please use propoer ratio P.')
+        # for regression
+        self.cls_agnostic_bbox_reg = cfg.MODEL.CLS_AGNOSTIC_BBOX_REG
+        # for partial labels
+        self.roi_refine = cfg.MODEL.ROI_WEAK_HEAD.ROI_LOSS_REFINE
+        self.partial_label = cfg.MODEL.ROI_WEAK_HEAD.PARTIAL_LABELS
+        assert self.partial_label in ['none', 'point', 'scribble']
+        self.proposal_scribble_matcher = Matcher(
+            0.5, 0.5, allow_low_quality_matches=False,
+        )
+        self.smooth_ce = LabelSmoothingCrossEntropy(epsilon = 0.2, reduction = 'none')
 
-    def __call__(self, class_score, det_score, img_score, proposals, targets, epsilon=1e-8):
+    def __call__(self, class_score, det_score, graph_score, node_score, ref_scores, ref_bbox_preds, proposals, targets, epsilon=1e-8):
+    #def __call__(self, img_score, ref_scores, ref_bbox_preds, proposals, targets, epsilon=1e-8):
         """
         Arguments:
             class_score (list[Tensor])
@@ -113,9 +131,10 @@ class GraphLossComputation(object):
             img_loss (Tensor)
             accuracy_img (Tensor): the accuracy of image-level classification
         """
-        class_score_list = cat(class_score, dim=0).split([len(p) for p in proposals])
+        '''import IPython; IPython.embed()
         class_score = cat(class_score, dim=0)
-        class_score = F.softmax(class_score, dim=1)
+        class_score = torch.clamp(F.softmax(class_score, dim=1), min=epsilon, max=1-epsilon)
+        class_score_list = class_score.split([len(p) for p in proposals])
 
         det_score = cat(det_score, dim=0)
         det_score_list = det_score.split([len(p) for p in proposals])
@@ -123,30 +142,91 @@ class GraphLossComputation(object):
         for det_score_per_image in det_score_list:
             det_score_per_image = F.softmax(det_score_per_image, dim=0)
             final_det_score.append(det_score_per_image)
+        det_score_list = final_det_score
         final_det_score = cat(final_det_score, dim=0)
+        '''
+        #device = class_score.device
+        #num_classes = class_score.shape[1]
+        device = ref_scores[0].device
+        num_classes = ref_scores[0].shape[1]
 
-        device = class_score.device
-        num_classes = class_score.shape[1]
+        #final_score = class_score * final_det_score
+        #final_score_list = final_score.split([len(p) for p in proposals])
+        ref_scores = [rs.split([len(p) for p in proposals]) for rs in ref_scores]
+        ref_bbox_preds = [rbp.split([len(p) for p in proposals]) for rbp in ref_bbox_preds]
 
-        final_score = class_score * final_det_score
-        final_score_list = final_score.split([len(p) for p in proposals])
-        #final_score_list1 = (graph_cls_logit[0] * graph_det_logit[0]).split([len(p) for p in proposals])
-        total_loss = 0
-        accuracy_img = 0
+        return_loss_dict = dict(loss_img=0)
+        return_acc_dict = dict(acc_img=0)
+        num_refs = len(ref_scores)
 
-        for idx, (final_score_per_im, targets_per_im) in enumerate(zip(final_score_list, targets)):
+
+        for i in range(num_refs):
+            return_loss_dict['loss_ref_cls%d'%i] = 0
+            return_loss_dict['loss_ref_reg%d'%i] = 0
+            return_acc_dict['acc_ref%d'%i] = 0
+
+        #for idx, (final_score_per_im, targets_per_im, proposals_per_image) in enumerate(zip(final_score_list, targets, proposals)):
+        for idx, (targets_per_im, proposals_per_image) in enumerate(zip(targets,proposals)):
             labels_per_im = generate_img_label(num_classes, targets_per_im.get_field('labels').unique(), device)
             #import IPython; IPython.embed()
-            img_score_per_im = torch.clamp(torch.sum(final_score_per_im, dim=0), min=epsilon, max=1-epsilon)
-            import IPython; IPython.embed()
-            #img_score_per_im = img_score[idx]
-            total_loss += F.binary_cross_entropy(img_score_per_im, labels_per_im)
-            with torch.no_grad():
-                accuracy_img += compute_avg_img_accuracy(labels_per_im, img_score_per_im, num_classes)
+            # MIL loss
+            #img_score_per_im = torch.clamp(torch.sum(final_score_per_im, dim=0), min=epsilon, max=1-epsilon)
+            img_score_per_im = graph_score[idx]
+            return_loss_dict['loss_img'] += F.binary_cross_entropy(img_score_per_im, labels_per_im)
 
-        total_loss = total_loss / len(final_score_list)
-        accuracy_img = accuracy_img / len(final_score_list)
-        return dict(loss_img=total_loss), dict(accuracy_img=accuracy_img)
+            # Region loss
+            for i in range(num_refs):
+                source_score = node_score[idx] if i == 0 else F.softmax(ref_scores[i-1][idx], dim=1)
+                pseudo_labels, loss_weights, regression_targets = self.roi_layer(
+                    proposals_per_image, source_score, labels_per_im, device, return_targets=True
+                )
+                if self.roi_refine:
+                    pseudo_labels = self.filter_pseudo_labels(pseudo_labels, proposals_per_image, targets_per_im)
+                #lmda = 3 if i == 0 else 1
+                lmda = 1
+                # classification
+                return_loss_dict['loss_ref_cls%d'%i] += lmda * torch.mean(
+                    F.cross_entropy(ref_scores[i][idx], pseudo_labels, reduction='none') * loss_weights
+                )
+                #return_loss_dict['loss_ref_cls%d'%i] += lmda * torch.mean(
+                #     self.smooth_ce(ref_scores[i][idx], pseudo_labels) * loss_weights
+                #)
+                # regression
+                sampled_pos_inds_subset = torch.nonzero(pseudo_labels>0, as_tuple=False).squeeze(1)
+                labels_pos = pseudo_labels[sampled_pos_inds_subset]
+                if self.cls_agnostic_bbox_reg:
+                    map_inds = torch.tensor([4, 5, 6, 7], device=device)
+                else:
+                    map_inds = 4 * labels_pos[:, None] + torch.tensor([0, 1, 2, 3], device=device)
+
+                box_regression = ref_bbox_preds[i][idx]
+                reg_loss = lmda * torch.sum(smooth_l1_loss(
+                    box_regression[sampled_pos_inds_subset[:, None], map_inds],
+                    regression_targets[sampled_pos_inds_subset],
+                    beta=1, reduction=False) * loss_weights[sampled_pos_inds_subset, None]
+                )
+                reg_loss /= pseudo_labels.numel()
+                return_loss_dict['loss_ref_reg%d'%i] += reg_loss
+
+            with torch.no_grad():
+                return_acc_dict['acc_img'] += compute_avg_img_accuracy(labels_per_im, img_score_per_im, num_classes)
+                for i in range(num_refs):
+                    ref_score_per_im = torch.sum(ref_scores[i][idx], dim=0)
+                    return_acc_dict['acc_ref%d'%i] += compute_avg_img_accuracy(labels_per_im[1:], ref_score_per_im[1:], num_classes)
+
+        #assert len(final_score_list) != 0
+        #for l in return_loss_dict.keys():
+        #    return_loss_dict[l] /= len(final_score_list)
+        #for a in return_acc_dict.keys():
+        #    return_acc_dict[a] /= len(final_score_list)
+        assert len(node_score) != 0
+        for l in return_loss_dict.keys():
+            return_loss_dict[l] /= len(node_score)
+        for a in return_acc_dict.keys():
+            return_acc_dict[a] /= len(node_score)
+
+
+        return return_loss_dict, return_acc_dict
 
 
 

@@ -45,7 +45,6 @@ class WebDataset(torch.utils.data.Dataset):
             self._anno = json.load(f)
         self._imgpath = os.path.join(self.root, "images", "%s")
         self._imginfo = os.path.join(self.root, "images.txt")
-
         with open(self._imginfo) as f:
             self.ids = f.readlines()
         self.ids = [x.strip("\n") for x in self.ids]
@@ -129,6 +128,7 @@ class WebDataset(torch.utils.data.Dataset):
         anno = self._anno['annotations'][index]
         target = BoxList([anno['bbox']], (anno['width'], anno['height']), mode="xyxy")
         target.add_field("labels", torch.tensor([anno['category_id'] + 1]))
+        #target.add_field("img_info", [self._anno['images'][index]['file_name']])
         #print(index, anno['category_id'])
         #if not anno['category_id']:
         #    import IPython; IPython.embed()
@@ -182,10 +182,12 @@ class WebDataset(torch.utils.data.Dataset):
         return res
 
     def get_img_info(self, index):
-        img_id = self.ids[index]
-        file_name = "images/%s.jpg" % img_id
-        anno = self._anno['annotations'][index]
-        return {'height': anno['height'], 'width': anno['width'], "file_name": file_name}
+        anno = self._anno['images'][index]#['file_name']
+        #img = Image.open(self._imgpath % img_id).convert("RGB")
+        #img_id = self.ids[index]
+        #file_name = "images/%s.jpg" % img_id
+        #anno = self._anno['annotations'][index]
+        return {'height': anno['height'], 'width': anno['width'], "file_name": anno['file_name']}
         '''if os.path.exists(self._annopath % img_id):
             anno = ET.parse(self._annopath % img_id).getroot()
             size = anno.find("size")
